@@ -18,70 +18,24 @@ use Illuminate\Support\Facades\File;
 |
 */
 
-
 Route::get('/', function (Request $request) {
-    if (admin_setting('app_url') && admin_setting('safe_mode_enable', 0)) {
-        if ($request->server('HTTP_HOST') !== parse_url(admin_setting('app_url'))['host']) {
-            abort(403);
-        }
-    }
+    $html = '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8" />'
+        . '<meta name="viewport" content="width=device-width,initial-scale=1" />'
+        . '<title>' . e('Coming Soon') . '</title>'
+        . '<style>'
+        . 'html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}'
+        . 'body{display:flex;align-items:center;justify-content:center;background:#0b1220;color:#e5e7eb;}'
+        . '.wrap{text-align:center;max-width:720px;padding:24px;}'
+        . 'h1{margin:0 0 12px;font-size:42px;letter-spacing:.02em;}'
+        . 'p{margin:0;color:#9ca3af;font-size:16px;}'
+        . '</style>'
+        . '</head><body><div class="wrap">'
+        . '<h1>Coming Soon</h1>'
+        . '<p>' . e('Coming Soon') . '</p>'
+        . '</div></body></html>';
 
-    $theme = admin_setting('frontend_theme', 'Xboard');
-    $themeService = new ThemeService();
-
-    try {
-        if (!$themeService->exists($theme)) {
-            if ($theme !== 'Xboard') {
-                Log::warning('Theme not found, switching to default theme', ['theme' => $theme]);
-                $theme = 'Xboard';
-                admin_setting(['frontend_theme' => $theme]);
-            }
-            $themeService->switch($theme);
-        }
-
-        if (!$themeService->getThemeViewPath($theme)) {
-            throw new Exception('主题视图文件不存在');
-        }
-
-        $publicThemePath = public_path('theme/' . $theme);
-        if (!File::exists($publicThemePath)) {
-            $themePath = $themeService->getThemePath($theme);
-            if (!$themePath || !File::copyDirectory($themePath, $publicThemePath)) {
-                throw new Exception('主题初始化失败');
-            }
-            Log::info('Theme initialized in public directory', ['theme' => $theme]);
-        }
-
-        $renderParams = [
-            'title' => admin_setting('app_name', 'Xboard'),
-            'theme' => $theme,
-            'version' => app(UpdateService::class)->getCurrentVersion(),
-            'description' => admin_setting('app_description', 'Xboard is best'),
-            'logo' => admin_setting('logo'),
-            'theme_config' => $themeService->getConfig($theme)
-        ];
-        return view('theme::' . $theme . '.dashboard', $renderParams);
-    } catch (Exception $e) {
-        Log::error('Theme rendering failed', [
-            'theme' => $theme,
-            'error' => $e->getMessage()
-        ]);
-        abort(500, '主题加载失败');
-    }
-});
-
-//TODO:: 兼容
-Route::get('/' . admin_setting('secure_path', admin_setting('frontend_admin_path', hash('crc32b', config('app.key')))), function () {
-    return view('admin', [
-        'title' => admin_setting('app_name', 'XBoard'),
-        'theme_sidebar' => admin_setting('frontend_theme_sidebar', 'light'),
-        'theme_header' => admin_setting('frontend_theme_header', 'dark'),
-        'theme_color' => admin_setting('frontend_theme_color', 'default'),
-        'background_url' => admin_setting('frontend_background_url'),
-        'version' => app(UpdateService::class)->getCurrentVersion(),
-        'logo' => admin_setting('logo'),
-        'secure_path' => admin_setting('secure_path', admin_setting('frontend_admin_path', hash('crc32b', config('app.key'))))
-    ]);
+    return response($html)
+        ->header('content-type', 'text/html; charset=UTF-8');
 });
 
 Route::get('/' . (admin_setting('subscribe_path', 's')) . '/{token}', [\App\Http\Controllers\V1\Client\ClientController::class, 'subscribe'])
