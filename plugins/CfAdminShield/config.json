@@ -1,0 +1,31 @@
+{
+  "name": "Cloudflare Admin Shield",
+  "code": "cf_admin_shield",
+  "type": "feature",
+  "version": "1.0.0",
+  "description": "Protect admin secure_path with Cloudflare Turnstile (server-side validation).",
+  "author": "chenchen271956",
+  "require": {
+    "xboard": ">=1.0.0"
+  },
+  "config": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "label": "Enable",
+      "description": "Enable Turnstile protection for admin secure_path"
+    },
+    "turnstile_site_key": {
+      "type": "string",
+      "default": "",
+      "label": "Turnstile Site Key",
+      "description": "Turnstile sitekey (public)"
+    },
+    "turnstile_secret_key": {
+      "type": "string",
+      "default": "",
+      "label": "Turnstile Secret Key",
+      "description": "Turnstile secret key (server-side verification)"
+    }
+  }
+}
