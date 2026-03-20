@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\PaymentQueryInterface;
 use App\Exceptions\ApiException;
 use App\Models\Payment;
 use App\Services\Plugin\PluginManager;
@@ -80,6 +81,17 @@ class PaymentService
             'user_id' => $order['user_id'],
             'stripe_token' => $order['stripe_token']
         ]);
+    }
+
+    public function query(string $tradeNo): array|bool
+    {
+        if (!isset($this->config['enable']) || !$this->config['enable']) {
+            throw new ApiException('gate is not enable');
+        }
+        if (!($this->payment instanceof PaymentQueryInterface)) {
+            return false;
+        }
+        return $this->payment->query($tradeNo);
     }
 
     public function form()

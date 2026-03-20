@@ -161,6 +161,9 @@ class OrderController extends Controller
 
     public function check(Request $request)
     {
+        $request->validate([
+            'trade_no' => 'required|string',
+        ]);
         $tradeNo = $request->input('trade_no');
         $order = Order::where('trade_no', $tradeNo)
             ->where('user_id', $request->user()->id)
@@ -168,7 +171,25 @@ class OrderController extends Controller
         if (!$order) {
             return $this->fail([400, __('Order does not exist')]);
         }
-        return $this->success($order->status);
+
+        if ((int) $order->status === Order::STATUS_PENDING && $order->payment_id) {
+            $payment = Payment::find($order->payment_id);
+            if ($payment && $payment->enable) {
+                try {
+                    $paymentService = new PaymentService($payment->payment, $payment->id);
+                    $result = $paymentService->query($tradeNo);
+                    if (is_array($result) && ($result['paid'] ?? false)) {
+                        $callbackNo = $result['callback_no'] ?? $tradeNo;
+                        $orderService = new OrderService($order);
+                        $orderService->paid((string) $callbackNo);
+                        $order->refresh();
+                    }
+                } catch (\Throwable $e) {
+                }
+            }
+        }
+
+        return $this->success((int) $order->status);
     }
 
     public function getPaymentMethod()
