@@ -5,12 +5,16 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Redis;
 
 class PanelWsServer extends Command
 {
     protected $signature = 'xboard:panel-ws {--host= : Bind host} {--port= : Bind port}';
 
     protected $description = 'Run panel WebSocket transport server for node communication';
+
+    private const REDIS_OUTGOING_QUEUE = 'panel_ws:outgoing';
+    private const REDIS_RESPONSE_PREFIX = 'panel_ws:response:';
 
     public function handle(): int
     {
@@ -30,6 +34,11 @@ class PanelWsServer extends Command
         /** @var array<int, string> $connPath */
         $connPath = [];
 
+        /** @var array<string, int> $nodeIdToFd */
+        $nodeIdToFd = [];
+        /** @var array<int, string> $fdToNodeId */
+        $fdToNodeId = [];
+
         $server->set([
             'http_compression' => true,
             'open_http_protocol' => true,
@@ -37,7 +46,55 @@ class PanelWsServer extends Command
             'websocket_compression' => true,
         ]);
 
-        $server->on('open', function (\Swoole\WebSocket\Server $server, \Swoole\Http\Request $request) use (&$connQuery, &$connPath): void {
+        $server->tick(200, function () use ($server, &$nodeIdToFd): void {
+            try {
+                $payloadRaw = Redis::connection()->lpop(self::REDIS_OUTGOING_QUEUE);
+                if (!is_string($payloadRaw) || $payloadRaw === '') {
+                    return;
+                }
+                $payload = json_decode($payloadRaw, true);
+                if (!is_array($payload)) {
+                    return;
+                }
+
+                $nodeId = (string) ($payload['node_id'] ?? '');
+                $request = $payload['request'] ?? null;
+                $ttl = (int) ($payload['ttl'] ?? 10);
+                $id = $payload['id'] ?? null;
+
+                if ($nodeId === '' || !is_array($request)) {
+                    return;
+                }
+                if ($id !== null) {
+                    $responseKey = self::REDIS_RESPONSE_PREFIX . (string) $id;
+                    Redis::connection()->expire($responseKey, max(1, $ttl));
+                }
+
+                if (!isset($nodeIdToFd[$nodeId])) {
+                    if ($id !== null) {
+                        $responseKey = self::REDIS_RESPONSE_PREFIX . (string) $id;
+                        Redis::connection()->setex($responseKey, max(1, $ttl), json_encode([
+                            'id' => $id,
+                            'status' => 503,
+                            'headers' => ['Content-Type' => ['application/json']],
+                            'body' => '{"error":"node offline"}'
+                        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+                    }
+                    return;
+                }
+
+                $fd = (int) $nodeIdToFd[$nodeId];
+                if (!$server->isEstablished($fd)) {
+                    unset($nodeIdToFd[$nodeId]);
+                    return;
+                }
+
+                $server->push($fd, json_encode($request, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+            } catch (\Throwable $e) {
+            }
+        });
+
+        $server->on('open', function (\Swoole\WebSocket\Server $server, \Swoole\Http\Request $request) use (&$connQuery, &$connPath, &$nodeIdToFd, &$fdToNodeId): void {
             $query = is_array($request->get ?? null) ? $request->get : [];
             $connQuery[(int) $request->fd] = $query;
 
@@ -54,13 +111,28 @@ class PanelWsServer extends Command
 
             if (!is_string($token) || $token === '' || $nodeId === null || $nodeId === '') {
                 $server->disconnect($request->fd, 1008, 'Unauthorized');
+                return;
             }
+
+            $nodeId = (string) $nodeId;
+            $nodeIdToFd[$nodeId] = (int) $request->fd;
+            $fdToNodeId[(int) $request->fd] = $nodeId;
         });
 
         $server->on('message', function (\Swoole\WebSocket\Server $server, \Swoole\WebSocket\Frame $frame) use (&$connQuery, &$connPath): void {
             $wsRequest = json_decode($frame->data, true);
             if (!is_array($wsRequest)) {
                 $this->pushWsResponse($server, $frame->fd, 400, [], 'Invalid JSON');
+                return;
+            }
+
+            if (isset($wsRequest['status']) && isset($wsRequest['id'])) {
+                try {
+                    $id = (string) $wsRequest['id'];
+                    $responseKey = self::REDIS_RESPONSE_PREFIX . $id;
+                    Redis::connection()->setex($responseKey, 15, json_encode($wsRequest, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+                } catch (\Throwable $e) {
+                }
                 return;
             }
 
@@ -91,11 +163,7 @@ class PanelWsServer extends Command
             $body = '';
             if (is_string($bodyRaw) && $bodyRaw !== '') {
                 $decoded = base64_decode($bodyRaw, true);
-                if ($decoded === false) {
-                    $this->pushWsResponse($server, $frame->fd, 400, [], 'Invalid body encoding');
-                    return;
-                }
-                $body = $decoded;
+                $body = $decoded === false ? $bodyRaw : $decoded;
             }
 
             $nodeQuery = $connQuery[(int) $frame->fd] ?? [];
@@ -124,15 +192,26 @@ class PanelWsServer extends Command
                 $respHeaders = $response->headers->all();
                 $respBody = $response->getContent();
 
-                $this->pushWsResponse($server, $frame->fd, $status, $respHeaders, $respBody);
+                $id = $wsRequest['id'] ?? null;
+
+                $this->pushWsResponse($server, $frame->fd, $status, $respHeaders, $respBody, $id);
             } catch (\Throwable $e) {
-                $this->pushWsResponse($server, $frame->fd, 500, [], $e->getMessage());
+                $id = $wsRequest['id'] ?? null;
+                $this->pushWsResponse($server, $frame->fd, 500, [], $e->getMessage(), $id);
             }
         });
 
-        $server->on('close', function (\Swoole\WebSocket\Server $server, int $fd) use (&$connQuery, &$connPath): void {
+        $server->on('close', function (\Swoole\WebSocket\Server $server, int $fd) use (&$connQuery, &$connPath, &$nodeIdToFd, &$fdToNodeId): void {
             unset($connQuery[$fd]);
             unset($connPath[$fd]);
+
+            if (isset($fdToNodeId[$fd])) {
+                $nodeId = $fdToNodeId[$fd];
+                unset($fdToNodeId[$fd]);
+                if (isset($nodeIdToFd[$nodeId]) && $nodeIdToFd[$nodeId] === $fd) {
+                    unset($nodeIdToFd[$nodeId]);
+                }
+            }
         });
 
         $this->info("Panel WS server listening on ws://{$host}:{$port}");
@@ -141,13 +220,18 @@ class PanelWsServer extends Command
         return self::SUCCESS;
     }
 
-    private function pushWsResponse(\Swoole\WebSocket\Server $server, int $fd, int $status, array $headers, string $body): void
+    private function pushWsResponse(\Swoole\WebSocket\Server $server, int $fd, int $status, array $headers, string $body, $id = null): void
     {
         $payload = [
+            'id' => $id,
             'status' => $status,
             'headers' => $this->normalizeHeaders($headers),
             'body' => base64_encode($body),
         ];
+
+        if ($id === null) {
+            unset($payload['id']);
+        }
 
         $server->push($fd, json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }

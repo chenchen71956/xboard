@@ -71,6 +71,7 @@ class AdminRoute
             ], function ($router) {
                 $router->get('/getNodes', [ManageController::class, 'getNodes']);
                 $router->post('/sort', [ManageController::class, 'sort']);
+                $router->post('/trafficQuery', [ManageController::class, 'trafficQuery']);
             });
 
             // 节点更新接口
