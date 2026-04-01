@@ -26,6 +26,8 @@ class CacheKey
         'SERVER_*_LAST_PUSH_AT',       // 节点最后推送时间
         'SERVER_*_LOAD_STATUS',        // 节点负载状态
         'SERVER_*_LAST_LOAD_AT',       // 节点最后负载提交时间
+        'REALTIME_UID_LAST_NODE',      // 实时在线：用户最近上报节点
+        'REALTIME_PULL_LOCK',          // 实时在线：拉取节流锁
     ];
 
     /**

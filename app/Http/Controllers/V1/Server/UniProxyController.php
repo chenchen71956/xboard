@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\V1\Server;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\PullTrafficFromNodeJob;
 use App\Jobs\UpdateAliveDataJob;
 use App\Services\ServerService;
 use App\Services\UserService;
@@ -67,6 +68,22 @@ class UniProxyController extends Controller
         $node = $this->getNodeInfo($request);
         $nodeType = $node->type;
         $nodeId = $node->id;
+
+        $nodeKey = (string) $request->input('node_id');
+        foreach ($data as $uid => $v) {
+            $uid = (int) $uid;
+            if ($uid <= 0) {
+                continue;
+            }
+            $lastNodeKey = Cache::get(CacheKey::get('REALTIME_UID_LAST_NODE', $uid));
+            if (is_string($lastNodeKey) && $lastNodeKey !== '' && $lastNodeKey !== $nodeKey) {
+                $lockKey = CacheKey::get('REALTIME_PULL_LOCK', $uid . '_' . $lastNodeKey);
+                if (Cache::add($lockKey, 1, 30)) {
+                    PullTrafficFromNodeJob::dispatch($lastNodeKey, $uid)->onQueue('traffic_fetch');
+                }
+            }
+            Cache::put(CacheKey::get('REALTIME_UID_LAST_NODE', $uid), $nodeKey, 600);
+        }
 
         Cache::put(
             CacheKey::get('SERVER_' . strtoupper($nodeType) . '_ONLINE_USER', $nodeId),
