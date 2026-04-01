@@ -16,6 +16,14 @@ class UpdateAliveDataJob implements ShouldQueue
 {
   use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+  public int $tries = 3;
+  public int $timeout = 20;
+
+  public function backoff(): array
+  {
+    return [1, 5, 10];
+  }
+
   private const CACHE_PREFIX = 'ALIVE_IP_USER_';
   private const CACHE_TTL = 120;
   private const NODE_DATA_EXPIRY = 100;
@@ -38,8 +46,20 @@ class UpdateAliveDataJob implements ShouldQueue
       $userUpdates = [];
 
       foreach ($this->data as $uid => $ips) {
+        $uid = (int) $uid;
+        if ($uid <= 0) {
+          continue;
+        }
+
+        if (!is_array($ips)) {
+          continue;
+        }
+
         $cacheKey = self::CACHE_PREFIX . $uid;
         $ipsArray = Cache::get($cacheKey, []);
+        if (!is_array($ipsArray)) {
+          $ipsArray = [];
+        }
         $ipsArray = [
           ...collect($ipsArray)
             ->filter(fn(mixed $value): bool => is_array($value) && ($updateAt - ($value['lastupdateAt'] ?? 0) <= self::NODE_DATA_EXPIRY)),
@@ -100,7 +120,7 @@ class UpdateAliveDataJob implements ShouldQueue
       Log::error('UpdateAliveDataJob failed', [
         'error' => $e->getMessage(),
       ]);
-      $this->fail($e);
+      throw $e;
     }
   }
 

@@ -25,7 +25,7 @@ class PullTrafficFromNodeJob implements ShouldQueue
     protected int $uid;
 
     public $tries = 1;
-    public $timeout = 20;
+    public $timeout = 8;
 
     public function __construct(string $nodeId, int $uid)
     {
@@ -67,18 +67,18 @@ class PullTrafficFromNodeJob implements ShouldQueue
         Redis::connection()->rpush(self::WS_OUTGOING_QUEUE, json_encode([
             'node_id' => $this->nodeId,
             'id' => $id,
-            'ttl' => 10,
+            'ttl' => 5,
             'request' => $wsRequest,
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
-        $deadline = microtime(true) + 10;
+        $deadline = microtime(true) + 5;
         $respRaw = null;
         while (microtime(true) < $deadline) {
             $respRaw = Redis::connection()->get($responseKey);
             if (is_string($respRaw) && $respRaw !== '') {
                 break;
             }
-            usleep(100000);
+            usleep(50000);
         }
 
         if (!is_string($respRaw) || $respRaw === '') {
