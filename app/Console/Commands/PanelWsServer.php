@@ -46,7 +46,7 @@ class PanelWsServer extends Command
             'websocket_compression' => true,
         ]);
 
-        $server->tick(200, function () use ($server, &$nodeIdToFd): void {
+        \Swoole\Timer::tick(200, function () use ($server, &$nodeIdToFd): void {
             try {
                 $payloadRaw = Redis::connection()->lpop(self::REDIS_OUTGOING_QUEUE);
                 if (!is_string($payloadRaw) || $payloadRaw === '') {
