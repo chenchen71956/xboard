@@ -5,11 +5,13 @@ namespace App\Jobs;
 use App\Models\Server;
 use App\Services\ServerService;
 use App\Services\UserService;
+use App\Utils\CacheKey;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Redis;
 
 class PullTrafficFromNodeJob implements ShouldQueue
@@ -38,8 +40,11 @@ class PullTrafficFromNodeJob implements ShouldQueue
             return;
         }
 
+        $failCountKey = CacheKey::get('REALTIME_PULL_FAIL_COUNT', $this->uid . '_' . $this->nodeId);
+
         $server = ServerService::getServer($this->nodeId, null);
         if (!$server instanceof Server) {
+            Cache::put($failCountKey, ((int) Cache::get($failCountKey, 0)) + 1, 600);
             return;
         }
 
@@ -77,16 +82,19 @@ class PullTrafficFromNodeJob implements ShouldQueue
         }
 
         if (!is_string($respRaw) || $respRaw === '') {
+            Cache::put($failCountKey, ((int) Cache::get($failCountKey, 0)) + 1, 600);
             return;
         }
 
         $resp = json_decode($respRaw, true);
         if (!is_array($resp)) {
+            Cache::put($failCountKey, ((int) Cache::get($failCountKey, 0)) + 1, 600);
             return;
         }
 
         $status = (int) ($resp['status'] ?? 500);
         if ($status !== 200) {
+            Cache::put($failCountKey, ((int) Cache::get($failCountKey, 0)) + 1, 600);
             return;
         }
 
@@ -99,11 +107,13 @@ class PullTrafficFromNodeJob implements ShouldQueue
 
         $payload = $decodedBody !== '' ? json_decode($decodedBody, true) : null;
         if (!is_array($payload)) {
+            Cache::put($failCountKey, ((int) Cache::get($failCountKey, 0)) + 1, 600);
             return;
         }
 
         $traffic = $payload['traffic'] ?? null;
         if (!is_array($traffic)) {
+            Cache::put($failCountKey, ((int) Cache::get($failCountKey, 0)) + 1, 600);
             return;
         }
 
@@ -122,10 +132,13 @@ class PullTrafficFromNodeJob implements ShouldQueue
         }
 
         if (empty($data)) {
+            Cache::put($failCountKey, ((int) Cache::get($failCountKey, 0)) + 1, 600);
             return;
         }
 
         $userService = new UserService();
         $userService->trafficFetch($server, $server->type, $data);
+
+        Cache::forget($failCountKey);
     }
 }

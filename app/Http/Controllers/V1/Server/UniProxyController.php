@@ -77,9 +77,13 @@ class UniProxyController extends Controller
             }
             $lastNodeKey = Cache::get(CacheKey::get('REALTIME_UID_LAST_NODE', $uid));
             if (is_string($lastNodeKey) && $lastNodeKey !== '' && $lastNodeKey !== $nodeKey) {
+                $failCountKey = CacheKey::get('REALTIME_PULL_FAIL_COUNT', $uid . '_' . $lastNodeKey);
+                $failCount = (int) Cache::get($failCountKey, 0);
+                if ($failCount < 5) {
                 $lockKey = CacheKey::get('REALTIME_PULL_LOCK', $uid . '_' . $lastNodeKey);
                 if (Cache::add($lockKey, 1, 30)) {
                     PullTrafficFromNodeJob::dispatch($lastNodeKey, $uid)->onQueue('traffic_fetch');
+                }
                 }
             }
             Cache::put(CacheKey::get('REALTIME_UID_LAST_NODE', $uid), $nodeKey, 600);

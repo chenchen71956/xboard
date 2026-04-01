@@ -28,6 +28,7 @@ class CacheKey
         'SERVER_*_LAST_LOAD_AT',       // 节点最后负载提交时间
         'REALTIME_UID_LAST_NODE',      // 实时在线：用户最近上报节点
         'REALTIME_PULL_LOCK',          // 实时在线：拉取节流锁
+        'REALTIME_PULL_FAIL_COUNT',    // 实时在线：拉取失败次数（熔断）
     ];
 
     /**
