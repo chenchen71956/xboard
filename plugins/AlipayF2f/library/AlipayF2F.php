@@ -72,7 +72,11 @@ class AlipayF2F
 
     public function send()
     {
-        $response = Http::get('https://openapi.alipay.com/gateway.do', $this->buildParam())->json();
+        $response = Http::connectTimeout(5)
+            ->timeout(12)
+            ->retry(1, 200)
+            ->get('https://openapi.alipay.com/gateway.do', $this->buildParam())
+            ->json();
         $resKey = str_replace('.', '_', $this->method) . '_response';
         if (!isset($response[$resKey]))
             throw new \Exception('从支付宝请求失败');
@@ -102,7 +106,7 @@ class AlipayF2F
             'method' => $this->method,
             'charset' => 'UTF-8',
             'sign_type' => $this->signType,
-            'timestamp' => date('Y-m-d H:m:s'),
+            'timestamp' => date('Y-m-d H:i:s'),
             'biz_content' => $this->bizContent,
             'version' => '1.0',
             '_input_charset' => 'UTF-8'

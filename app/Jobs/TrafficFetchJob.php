@@ -16,8 +16,13 @@ class TrafficFetchJob implements ShouldQueue
     protected $server;
     protected $protocol;
     protected $timestamp;
-    public $tries = 1;
-    public $timeout = 20;
+    public int $tries = 3;
+    public int $timeout = 30;
+
+    public function backoff(): array
+    {
+        return [1, 5, 10];
+    }
 
     /**
      * Create a new job instance.
@@ -35,12 +40,29 @@ class TrafficFetchJob implements ShouldQueue
 
     public function handle(): void
     {
+        $rate = (float) ($this->server['rate'] ?? 1);
+
         foreach ($this->data as $uid => $v) {
+            $uid = (int) $uid;
+            if ($uid <= 0) {
+                continue;
+            }
+
+            if (!is_array($v) || !isset($v[0], $v[1]) || !is_numeric($v[0]) || !is_numeric($v[1])) {
+                continue;
+            }
+
+            $u = (float) $v[0] * $rate;
+            $d = (float) $v[1] * $rate;
+            if ($u <= 0 && $d <= 0) {
+                continue;
+            }
+
             User::where('id', $uid)
                 ->incrementEach(
                     [
-                        'u' => $v[0] * $this->server['rate'],
-                        'd' => $v[1] * $this->server['rate'],
+                        'u' => $u,
+                        'd' => $d,
                     ],
                     ['t' => time()]
                 );

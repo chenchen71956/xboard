@@ -147,12 +147,16 @@ class OrderController extends Controller
         $order->payment_id = $method;
         if (!$order->save())
             return $this->fail([400, __('Request failed, please try again later')]);
-        $result = $paymentService->pay([
-            'trade_no' => $tradeNo,
-            'total_amount' => isset($order->handling_amount) ? ($order->total_amount + $order->handling_amount) : $order->total_amount,
-            'user_id' => $order->user_id,
-            'stripe_token' => $request->input('token')
-        ]);
+        try {
+            $result = $paymentService->pay([
+                'trade_no' => $tradeNo,
+                'total_amount' => isset($order->handling_amount) ? ($order->total_amount + $order->handling_amount) : $order->total_amount,
+                'user_id' => $order->user_id,
+                'stripe_token' => $request->input('token')
+            ]);
+        } catch (\Throwable $e) {
+            return $this->fail([400, __('Request failed, please try again later')]);
+        }
         return response([
             'type' => $result['type'],
             'data' => $result['data']
